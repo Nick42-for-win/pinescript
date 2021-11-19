@@ -1,0 +1,194 @@
+//Tested on BTCUSDT & ETHUSDT 4H chart
+
+//@version=5
+strategy(title="BBW EMA RIBBON+BB%B+EMA Strategy", shorttitle="BBW RIBBON+BB%B+EMA Strategy", overlay=true, pyramiding=100, default_qty_type=strategy.percent_of_equity, default_qty_value=100, initial_capital=100, currency=currency.USD, commission_type=strategy.commission.percent, commission_value=0.1)
+
+// Get strategy time period
+startDate = input.time(timestamp("2021-01-09T00:00:00"), "Start Date", group="STRATEGY SETTINGS")
+finishDate = input.time(timestamp("2021-11-09T00:00:00"), "Finish Date", group="STRATEGY SETTINGS")
+
+time_cond = time >= startDate and time <= finishDate
+
+useWeakSignals = input.bool(defval=true, title="Use Weak BUY/SELL signals", tooltip="If enabled the strategy will use Weak BUY/SELL signals to calculate results (by default only signals from the same type can close the trade)", group="STRATEGY SETTINGS")
+useNormalSignals = input.bool(defval=true, title="Use Normal BUY/SELL signals", tooltip="If enabled the strategy will use Normal BUY/SELL signals to calculate results (by default only signals from the same type can close the trade)", group="STRATEGY SETTINGS")
+useStrongSignals = input.bool(defval=true, title="Use Strong BUY/SELL signals", tooltip="If enabled the strategy will use Strong BUY/SELL signals to calculate results (by default only signals from the same type can close the trade)", group="STRATEGY SETTINGS")
+
+// Get user input
+haCandles = input.bool(defval=false, title="Use Heikin Ashi Candles", tooltip="If enabled the indicator will detect signals using heikin ashi candles", group="FILTERS")
+emaFilter = input.bool(false, title="EMA Ribbon filter", tooltip="If enabled the ema ribbon will detect possible entry zones only when under the ema ribbon filter to limit false signals during over extended price moves", group="FILTERS")
+lenEma9 = input.int(200, title="Filter Length", minval=56, group="FILTERS")
+
+lenEma = input.int(200, title="Length", minval=1, group="EMA")
+srcEma = input(close, title="Source", group="EMA")
+filterEma = input.bool(defval=true, title="Added EMA filter", tooltip="If enabled the ema will act as a stronger type of filter for signals", group="EMA")
+
+lenBb = input.int(20, title="Lenght", minval=1, group="BB")
+srcBb = input(close, title="Source", group="BB")
+multBb = input.float(2, title="Multiplier", minval=1, maxval=50, group="BB")
+
+pOsBbPb = input.string(defval="basic", title="Oversold Presets", options=["low", "basic", "high"], group="BB%B")
+pObBbPb = input.string(defval="basic", title="Overbought Presets", options=["low", "basic", "high"], group="BB%B")
+
+// Get Heikin Ashi
+ha_open = request.security(ticker.heikinashi(syminfo.tickerid), timeframe.period, open)
+ha_close = request.security(ticker.heikinashi(syminfo.tickerid), timeframe.period, close)
+ha_low = request.security(ticker.heikinashi(syminfo.tickerid), timeframe.period, low)
+ha_high = request.security(ticker.heikinashi(syminfo.tickerid), timeframe.period, high)
+
+// Use Heikin Ashi?
+openCandle = open
+closeCandle = close
+lowCandle = low
+highCandle = high
+srcHaEma = srcEma
+srcHaBb = srcBb
+
+if haCandles == true
+    openCandle := ha_open
+    closeCandle := ha_close
+    lowCandle := ha_low
+    highCandle := ha_high
+    srcHaEma := ha_close
+    srcHaBb := ha_close
+
+// Get EMA Ribbon
+lenEma1 = 21
+lenEma2 = 25
+lenEma3 = 30
+lenEma4 = 35
+lenEma5 = 40
+lenEma6 = 45
+lenEma7 = 50
+lenEma8 = 55
+
+// Get BBW
+bbw = ta.bbw(srcHaBb, lenBb, multBb)
+
+// Get BBW EMA Ribbon
+bbwEma1 = ta.ema(bbw, lenEma1)
+bbwEma2 = ta.ema(bbw, lenEma2)
+bbwEma3 = ta.ema(bbw, lenEma3)
+bbwEma4 = ta.ema(bbw, lenEma4)
+bbwEma5 = ta.ema(bbw, lenEma5)
+bbwEma6 = ta.ema(bbw, lenEma6)
+bbwEma7 = ta.ema(bbw, lenEma7)
+bbwEma8 = ta.ema(bbw, lenEma8)
+bbwEma9 = ta.ema(bbw, lenEma9)
+
+// Use EMA Ribbon Filter?
+EmaBuy = bbwEma9 > 0
+
+if emaFilter == true
+    EmaBuy := bbwEma8 <= bbwEma9
+
+// Detect potential ENTRY/EXIT zones
+entryZone = false
+exitZone = false
+colorZone = color.rgb(150, 150, 150, 85)
+
+if bbwEma1 >= bbwEma2 and bbwEma2 >= bbwEma3 and bbwEma3 >= bbwEma4 and bbwEma4 >= bbwEma5 and bbwEma5 >= bbwEma6 and bbwEma6 >= bbwEma7 and bbwEma7 >= bbwEma8
+    colorZone := color.rgb(150, 0, 0, 85)
+    exitZone := true
+
+if bbwEma1 <= bbwEma2 and bbwEma2 <= bbwEma3 and bbwEma3 <= bbwEma4 and bbwEma4 <= bbwEma5 and bbwEma5 <= bbwEma6 and bbwEma6 <= bbwEma7 and bbwEma7 <= bbwEma8 and EmaBuy
+    colorZone := color.rgb(0, 150, 0, 85)
+    entryZone := true
+
+// Use EMA Filter?
+filterBuy = closeCandle
+
+if filterEma == true
+    filterBuy := ((((openCandle + closeCandle) / 2) + lowCandle) / 2)
+
+// Get BB%B Oversold & Overbought
+weakOsBbPb = 0.0
+weakObBbPb = 0.0
+OsBbPb = 0.0
+ObBbPb = 0.0
+strongOsBbPb = 0.0
+strongObBbPb = 0.0
+
+if pOsBbPb == "basic"
+    weakOsBbPb := 0.4
+    OsBbPb := 0.2
+    strongOsBbPb := 0
+else if pOsBbPb == "low"
+    weakOsBbPb := 0.35
+    OsBbPb := 0.15
+    strongOsBbPb := -0.05
+else if pOsBbPb == "high"
+    weakOsBbPb := 0.45
+    OsBbPb := 0.25
+    strongOsBbPb := 0.05
+
+if pObBbPb == "basic"
+    weakObBbPb := 0.6
+    ObBbPb := 0.8
+    strongObBbPb := 1
+else if pObBbPb == "low"
+    weakObBbPb := 0.55
+    ObBbPb := 0.75
+    strongObBbPb := 0.95
+else if pObBbPb == "high"
+    weakObBbPb := 0.65
+    ObBbPb := 0.85
+    strongObBbPb := 1.05
+
+// Get EMA
+ema = ta.ema(srcHaEma, lenEma)
+
+// Plot EMA
+plot(ema, title="EMA", color=close>ema?color.green:color.red)
+
+// Get BB%B
+basis = ta.sma(srcHaBb, lenBb)
+dev = multBb * ta.stdev(srcHaBb, lenBb)
+upper = basis + dev
+lower = basis - dev
+bbPb = (srcHaBb - lower) / (upper - lower)
+
+// Detect trading Setups
+weakBuySetup = (((closeCandle + highCandle) / 2) >= ema) and entryZone == true and (bbPb <= weakOsBbPb)
+weakSellSetup = exitZone == true and (bbPb > weakObBbPb) or (((closeCandle + lowCandle) / 2) <= ema)
+
+buySetup = (filterBuy >= ema) and entryZone == true and (bbPb <= OsBbPb)
+sellSetup = exitZone == true and (bbPb >= ObBbPb) or (closeCandle <= ema)
+
+strongBuySetup = ((openCandle > ema) and (closeCandle > ema)) and entryZone == true and (bbPb < strongOsBbPb)
+strongSellSetup = exitZone == true and (bbPb > strongObBbPb) or ((openCandle < ema) and (closeCandle < ema))
+
+// Detect first signal
+firstWeakBuy = false
+firstWeakBuy := weakBuySetup ? true : weakSellSetup ? false : firstWeakBuy[1]
+early_weak_buy_signal = weakBuySetup and not(firstWeakBuy[1])
+firstWeakSell = false
+firstWeakSell := weakSellSetup ? true : weakBuySetup ? false : firstWeakSell[1]
+early_weak_sell_signal = weakSellSetup and not(firstWeakSell[1])
+
+firstBuy = false
+firstBuy := buySetup ? true : sellSetup ? false : firstBuy[1]
+early_buy_signal = buySetup and not(firstBuy[1])
+firstSell = false
+firstSell := sellSetup ? true : buySetup ? false : firstSell[1]
+early_sell_signal = sellSetup and not(firstSell[1])
+
+firstStrongBuy = false
+firstStrongBuy := strongBuySetup ? true : strongSellSetup ? false : firstStrongBuy[1]
+early_strong_buy_signal = strongBuySetup and not(firstStrongBuy[1])
+firstStrongSell = false
+firstStrongSell := strongSellSetup ? true : strongBuySetup ? false : firstStrongSell[1]
+early_strong_sell_signal = strongSellSetup and not(firstStrongSell[1])
+
+// Strategy
+if (time_cond and useWeakSignals)
+    strategy.entry("WEAK LONG", strategy.long, when=early_weak_buy_signal)
+    strategy.close("WEAK LONG", when=early_weak_sell_signal)
+if (time_cond and useNormalSignals)
+    strategy.entry("LONG", strategy.long, when=early_buy_signal)
+    strategy.close("LONG", when=early_sell_signal)
+if (time_cond and useStrongSignals)
+    strategy.entry("STRONG LONG", strategy.long, when=early_strong_buy_signal)
+    strategy.close("STRONG LONG", when=early_strong_sell_signal)
+if (not time_cond)
+    strategy.close_all()
+    strategy.cancel_all()
